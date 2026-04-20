@@ -193,4 +193,4 @@ description: >-
 
 ---
 
-*本设计自查 Skill 由 vertu.huang 撰写，完全开源，支持根据需要自行优化。清单拆分后完整单文件备份见 `SKILL.full-backup.md`。*
+*本设计自查 Skill 由 vertu.huang 撰写，完全开源，支持根据需要自行优化。*
