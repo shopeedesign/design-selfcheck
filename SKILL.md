@@ -103,6 +103,148 @@ description: >-
    - [一般] **一般缺陷**：设计不一致或体验欠佳（建议修改）
    - [优化] **优化建议**：可提升体验的改进点（可选优化）
 
+### 阶段 4：输出报告并追问是否写回 Figma
+
+完成自查报告后，若本轮输入包含可定位的 Figma 设计稿，必须继续追问用户是否要把「设计缺陷」和「设计建议」写回到对应界面图稿下方。
+
+推荐话术：
+
+```text
+是否需要我把这次评审的设计缺陷和设计建议写回到 Figma 对应界面下方？
+
+选项：
+A. 是，写回 Figma
+B. 否，只保留文字报告
+```
+
+若用户选择 `A`，则继续执行阶段 5。
+若用户选择 `B`，则本次流程结束。
+
+### 阶段 5：将评审结果写回 Figma
+
+若用户确认需要写回，则必须先加载 `figma-use` skill，再调用 `use_figma`，把评审结论写到对应 frame 下方。
+
+写回原则：
+
+- 只写本次评审中真正相关的「设计缺陷」和「设计建议」，不要把整份报告原样搬进去。
+- 按 frame 分开写，主页面的问题写在主页面下方，弹层的问题写在对应弹层下方。
+- 文案风格以“可执行”为准，优先写清楚：问题是什么、为什么有影响、建议怎么改。
+- 所有新增说明必须放入独立分组，避免污染用户原图层。
+- 推荐分组名：`__codex_design_selfcheck_annotations`
+- 若页面中已存在同名分组，可先删除再重建，避免重复。
+- 不要改动用户原有设计内容，只新增说明块。
+
+推荐结构：
+
+- 标题：`Codex 自查 - {Frame 名称}`
+- 正文分两段：
+  - `设计缺陷`
+  - `设计建议`
+
+可参考实现：
+
+```js
+async function pickFont(preferredFamilies, preferredStyles) {
+  const fonts = await figma.listAvailableFontsAsync();
+  for (const family of preferredFamilies) {
+    for (const style of preferredStyles) {
+      const match = fonts.find((f) => f.fontName.family === family && f.fontName.style === style);
+      if (match) {
+        await figma.loadFontAsync(match.fontName);
+        return match.fontName;
+      }
+    }
+  }
+  const fallback = fonts[0]?.fontName;
+  if (!fallback) throw new Error('No available fonts');
+  await figma.loadFontAsync(fallback);
+  return fallback;
+}
+
+const regularFont = await pickFont(
+  ['PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', 'Arial Unicode MS', 'Inter'],
+  ['Regular', 'Normal', 'W3']
+);
+const titleFont = await pickFont(
+  ['PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', 'Arial Unicode MS', 'Inter'],
+  ['Medium', 'Semibold', 'Semi Bold', 'Bold', 'Regular', 'Normal', 'W6', 'W3']
+);
+
+const configs = [
+  {
+    frameId: '1459:7143',
+    title: 'Codex 自查 - Current Inventory',
+    width: 580,
+    body: [
+      '设计缺陷',
+      '[严重] ……',
+      '[一般] ……',
+      '',
+      '设计建议',
+      '1. ……',
+      '2. ……'
+    ].join('\\n')
+  }
+];
+
+const firstFrame = await figma.getNodeByIdAsync(configs[0].frameId);
+const page = firstFrame.parent;
+
+for (const child of [...page.children]) {
+  if (child.name === '__codex_design_selfcheck_annotations') child.remove();
+}
+
+const noteFrames = [];
+const createdNodeIds = [];
+
+for (const config of configs) {
+  const frame = await figma.getNodeByIdAsync(config.frameId);
+  if (!frame || frame.type !== 'FRAME') continue;
+
+  const note = figma.createFrame();
+  note.name = `selfcheck-${frame.name}`;
+  note.layoutMode = 'VERTICAL';
+  note.itemSpacing = 12;
+  note.paddingTop = 20;
+  note.paddingBottom = 20;
+  note.paddingLeft = 20;
+  note.paddingRight = 20;
+  note.cornerRadius = 12;
+  note.fills = [{ type: 'SOLID', color: { r: 1, g: 0.985, b: 0.94 } }];
+  note.strokes = [{ type: 'SOLID', color: { r: 0.93, g: 0.58, b: 0.2 } }];
+  note.strokeWeight = 1;
+  note.resize(config.width, 120);
+  note.primaryAxisSizingMode = 'AUTO';
+  note.counterAxisSizingMode = 'FIXED';
+  note.x = frame.x;
+  note.y = frame.y + frame.height + 24;
+
+  const title = figma.createText();
+  title.fontName = titleFont;
+  title.fontSize = 18;
+  title.characters = config.title;
+  title.textAutoResize = 'WIDTH_AND_HEIGHT';
+  note.appendChild(title);
+
+  const body = figma.createText();
+  body.fontName = regularFont;
+  body.fontSize = 14;
+  body.lineHeight = { unit: 'PIXELS', value: 24 };
+  body.resize(config.width - 40, 100);
+  body.textAutoResize = 'HEIGHT';
+  body.characters = config.body;
+  note.appendChild(body);
+
+  noteFrames.push(note);
+  createdNodeIds.push(note.id, title.id, body.id);
+}
+
+const group = figma.group(noteFrames, page);
+group.name = '__codex_design_selfcheck_annotations';
+
+return { createdNodeIds: [group.id, ...createdNodeIds] };
+```
+
 ---
 
 ## 输出要求
@@ -180,6 +322,10 @@ description: >-
 
 1. **[改进动作]**：[描述改进方向]
 ```
+
+### 报告后的追问
+
+若本轮设计稿来自 Figma，输出完报告后，必须继续追问用户是否要把评审结论写回 Figma，对应话术见「阶段 4」。
 
 ## 注意事项
 
